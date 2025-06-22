@@ -105,12 +105,13 @@ allow_tf32: False
 
 
 # optimizer
-  # train diffusion
-unet_lr: 2e-5
-router_lr: 1e-5
-vae_lr: 1e-5
-  # train Evae
-evae_lr:  5e-5
+lr:
+    # train diffusion
+  unet: 2e-5
+  router: 1e-5
+  vae: 1e-5
+    # train Evae
+  evae:  5e-5
 
 adam_beta1: 0.9
 adam_beta2: 0.999
@@ -129,20 +130,21 @@ lr_num_cycles: 0.5
 lr_power: 1.0
 
 # dataloader
-test_batch_size: 1
-train_batch_size: 2
+batch_size:
+  test: 1
+  train: 2
 dataloader_num_workers: 8
 
 #log
 tracker_project_name: log
 
 # loss
-loss_type: DISTS
-
-loss_l2: 1.0
-loss_kl: 1.0
-loss_feat: 2.0
-cfg_vsd: 7.5
+loss:
+  feat_type: DISTS
+  l2: 1.0
+  kl: 1.0
+  feat: 2.0
+  cfg_vsd: 7.5
 
 # load (auto load last checkpoint)
 model_load_path: 

@@ -33,6 +33,7 @@ from model.MoeDiffusion import MoeDiffusion, AUXModel
 from model.diffusion import eVAE
 from utils.utils_logger import logger_info
 from utils.common import instantiate_from_config
+from utils.save_config import save_full_config
 
 
 def cycle(dl):
@@ -80,7 +81,11 @@ def main(args):
 
     if accelerator.is_main_process:
         os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
-        
+        # save config
+        writer_temp = accelerator.get_tracker(cfg.report_to)
+        print(type(writer_temp))
+        save_full_config(cfg=cfg, args=args, save_dir=os.path.join(args.output_dir, "config"),
+                         filename="train_config.json", writer=None)
 # ========================  Df model ============================
     if args.train_type == "Diffusion":
         AUX_model:AUXModel = instantiate_from_config(cfg.model.AUXModel)
@@ -126,7 +131,7 @@ def main(args):
         layers_to_opt = [
             {
                 "params":layers_to_opt_vae, 
-                "lr": cfg.evae_lr,                  # Unet学习率
+                "lr": cfg.lr.evae,                  # Unet学习率
                 "weight_decay": cfg.adam_weight_decay,
             },
         ]
@@ -151,19 +156,19 @@ def main(args):
         if len(layers_to_opt_unet) > 0:
             layers_to_opt.append({
                 "params":layers_to_opt_unet, 
-                "lr": cfg.unet_lr,                  # Unet学习率
+                "lr": cfg.lr.unet,                  # Unet学习率
                 "weight_decay": cfg.adam_weight_decay,
             })
         if len(layers_to_opt_router) > 0:
             layers_to_opt.append({
                 "params":layers_to_opt_router, 
-                "lr": cfg.router_lr,                  # router学习率
+                "lr": cfg.lr.router,                  # router学习率
                 "weight_decay": cfg.adam_weight_decay,
             })
         if len(layers_to_opt_router) > 0:
             layers_to_opt.append({
                 "params":layers_to_opt_vae, 
-                "lr": cfg.vae_lr,                  # decoder学习率（已预训练过）
+                "lr": cfg.lr.vae,                  # decoder学习率（已预训练过）
                 "weight_decay": cfg.adam_weight_decay,
             })
         
@@ -209,9 +214,9 @@ def main(args):
 
 # ========================  Dataset ============================
     dataset_train = instantiate_from_config(cfg.datasets.train)
-    dl_train = torch.utils.data.DataLoader(dataset_train, batch_size=cfg.train_batch_size, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
+    dl_train = torch.utils.data.DataLoader(dataset_train, batch_size=cfg.batch_size.train, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
     dataset_test = instantiate_from_config(cfg.datasets.test)
-    dl_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.test_batch_size, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
+    dl_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.batch_size.size, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
     
 # ========================  Prepare ============================
     # 清理未使用的缓存
@@ -267,8 +272,8 @@ def main(args):
 
             if args.train_type == "Evae":
                 output_image = model(x_src,x_tgt)
-                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss_l2
-                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss_feat
+                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss.l2
+                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss.feat
 
                 generator_loss = loss_l2 + loss_feat
                 
@@ -291,13 +296,13 @@ def main(args):
                 with torch.no_grad():
                     noise_pred_fix = AUX_model.get_fixed_pred(noisy_latents,timesteps, neg_prompt_embeds, prompt_embeds)
                     noise_pred_uncond, noise_pred_text = noise_pred_fix.chunk(2)
-                    noise_pred_fix = noise_pred_uncond + cfg.cfg_vsd * (noise_pred_text - noise_pred_uncond)
+                    noise_pred_fix = noise_pred_uncond + cfg.loss.cfg_vsd * (noise_pred_text - noise_pred_uncond)
                     noise_pred_fix.to(dtype=torch.float32)
                     
                 loss_kl = model(kl_turn=True, latents_pred=latents_pred, noisy_latents=noisy_latents, timesteps=timesteps,noise_pred_fix=noise_pred_fix, prompt_embeds=prompt_embeds)*cfg.loss_kl
                 # load: tensor([0.0000, 0.4055, 0.0000, 0.0000, 0.5945], device='cuda:0',grad_fn=<_DDPSinkBackward>)
-                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss_l2
-                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss_feat
+                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss.l2
+                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss.feat
 
                 generator_loss = loss_l2 + loss_feat + loss_kl
                 
