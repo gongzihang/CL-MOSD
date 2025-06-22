@@ -10,15 +10,15 @@ model:
     params:
       pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
       lora_rank: 4
-      num_experts: 5
+      num_experts: 8
       train_vae: False 
-      task_num: 5
+      task_num: 8
 
       router_embed_dim: 32
       top_k: 2
       noise_epsilon: 1e-2
       degradation_channels: 512
-      vae_path: 
+      vae_path: exp/DENOISE50/EVAE/DEMO1/checkpoints-80/model.pkl
       # train_vae_part: 
       # train_vae_part: Decoder
       # train_vae_part: Encoder
@@ -36,7 +36,7 @@ model:
       prompt_embed_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
       prompt_embed_revision: None
       # CGNet
-      task_num: 5
+      task_num: 8
       img_channel: 3 
       width: 60
       enc_blks: [2, 2, 4, 6]
@@ -71,23 +71,24 @@ datasets:
   test:
     target: data.datasets.Dataset_Denoise
     params: 
-      phase: train
+      phase: test
       # dataroot_gt: /home/gongzihang/data/LSDIR/HR/train/
       dataroot_gt: /home/gongzihang/workspace/Final_mix/data/testset/CBSD68
       # dataroot_lq: None 
       geometric_augs: true
       scale: 1
 
-      # gt_size: 256
+      gt_size: 256
       sigma_type: constant
       sigma_range: 50
+      sigma_test: 50
       
 
 log:
   # experiment directory path
   image_every: 100
-  checkpointing_steps: 10000
-  val_every: 10000
+  checkpointing_steps: 5000
+  val_every: 5000
 
 
 # output_dir: exp/OSEDiff/DEMO15
@@ -108,6 +109,7 @@ allow_tf32: False
 lr:
     # train diffusion
   unet: 2e-5
+  reg: 2e-5
   router: 1e-5
   vae: 1e-5
     # train Evae
@@ -139,8 +141,11 @@ dataloader_num_workers: 8
 tracker_project_name: log
 
 # loss
+loss_feat_type: DISTS
+loss_evae:
+  l2: 0.7
+  feat: 0.3
 loss:
-  feat_type: DISTS
   l2: 1.0
   kl: 1.0
   feat: 2.0

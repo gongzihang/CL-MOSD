@@ -48,15 +48,22 @@ def main(args):
     set_seed(cfg.seed)
     logging_dir = Path(args.output_dir, cfg.logging_dir)
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
-    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-    
-    accelerator = Accelerator(
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
-        mixed_precision=cfg.mixed_precision,
-        log_with=cfg.report_to,
-        project_config=accelerator_project_config,
-        kwargs_handlers=[ddp_kwargs],
-    )
+    if args.train_type == "Diffusion":
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+        accelerator = Accelerator(
+            gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+            mixed_precision=cfg.mixed_precision,
+            log_with=cfg.report_to,
+            project_config=accelerator_project_config,
+            kwargs_handlers=[ddp_kwargs],
+        )
+    else:
+        accelerator = Accelerator(
+            gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+            mixed_precision=cfg.mixed_precision,
+            log_with=cfg.report_to,
+            project_config=accelerator_project_config,
+        )
     print(f"当前进程rank: {accelerator.process_index} || {torch.cuda.device_count()//2+accelerator.process_index}")
     # 辅助显卡
     aux_device = torch.device(f"cuda:{torch.cuda.device_count()//2+accelerator.process_index}")
@@ -83,7 +90,6 @@ def main(args):
         os.makedirs(os.path.join(args.output_dir, "eval"), exist_ok=True)
         # save config
         writer_temp = accelerator.get_tracker(cfg.report_to)
-        print(type(writer_temp))
         save_full_config(cfg=cfg, args=args, save_dir=os.path.join(args.output_dir, "config"),
                          filename="train_config.json", writer=None)
 # ========================  Df model ============================
@@ -111,7 +117,7 @@ def main(args):
         model.set_train()
     
     
-    if cfg.loss_type == "LPIPS":
+    if cfg.loss_feat_type == "LPIPS":
         feat_loss_fn = lpips.LPIPS(net='vgg').cuda()
         feat_loss_fn.requires_grad_(False)
     else:
@@ -172,7 +178,7 @@ def main(args):
                 "weight_decay": cfg.adam_weight_decay,
             })
         
-        optimizer_reg = torch.optim.AdamW(layers_to_opt_reg, lr=cfg.reg_lr,
+        optimizer_reg = torch.optim.AdamW(layers_to_opt_reg, lr=cfg.lr.reg,
             betas=(cfg.adam_beta1, cfg.adam_beta2), weight_decay=cfg.adam_weight_decay,
             eps=cfg.adam_epsilon,)
         lr_scheduler_reg = get_scheduler(cfg.lr_scheduler, optimizer=optimizer_reg,
@@ -216,7 +222,7 @@ def main(args):
     dataset_train = instantiate_from_config(cfg.datasets.train)
     dl_train = torch.utils.data.DataLoader(dataset_train, batch_size=cfg.batch_size.train, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
     dataset_test = instantiate_from_config(cfg.datasets.test)
-    dl_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.batch_size.size, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
+    dl_test = torch.utils.data.DataLoader(dataset_test, batch_size=cfg.batch_size.test, shuffle=True,pin_memory=True, num_workers=cfg.dataloader_num_workers)
     
 # ========================  Prepare ============================
     # 清理未使用的缓存
@@ -259,7 +265,7 @@ def main(args):
     
     if args.train_type == "Diffusion":
         with torch.no_grad():
-            neg_prompt_embeds = AUX_model.get_neg_prompt_embeds(cfg.train_batch_size)
+            neg_prompt_embeds = AUX_model.get_neg_prompt_embeds(cfg.batch_size.train)
 
 # ========================  Start Training ============================
     for _ in range(args.max_train_steps):
@@ -272,8 +278,8 @@ def main(args):
 
             if args.train_type == "Evae":
                 output_image = model(x_src,x_tgt)
-                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss.l2
-                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss.feat
+                loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss_evae.l2
+                loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss_evae.feat
 
                 generator_loss = loss_l2 + loss_feat
                 
@@ -299,14 +305,14 @@ def main(args):
                     noise_pred_fix = noise_pred_uncond + cfg.loss.cfg_vsd * (noise_pred_text - noise_pred_uncond)
                     noise_pred_fix.to(dtype=torch.float32)
                     
-                loss_kl = model(kl_turn=True, latents_pred=latents_pred, noisy_latents=noisy_latents, timesteps=timesteps,noise_pred_fix=noise_pred_fix, prompt_embeds=prompt_embeds)*cfg.loss_kl
+                loss_kl = model(kl_turn=True, latents_pred=latents_pred, noisy_latents=noisy_latents, timesteps=timesteps,noise_pred_fix=noise_pred_fix, prompt_embeds=prompt_embeds)*cfg.loss.kl
                 # load: tensor([0.0000, 0.4055, 0.0000, 0.0000, 0.5945], device='cuda:0',grad_fn=<_DDPSinkBackward>)
                 loss_l2 = F.mse_loss(output_image.float(), x_tgt.float(), reduction="mean") * cfg.loss.l2
                 loss_feat = feat_loss_fn(output_image.float(), x_tgt.float()).mean() * cfg.loss.feat
 
                 generator_loss = loss_l2 + loss_feat + loss_kl
                 
-                accelerator.backward(generator_loss)
+                accelerator.backward(generator_loss)    
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(layers_to_opt_unet, cfg.max_grad_norm)
                     accelerator.clip_grad_norm_(layers_to_opt_router, cfg.max_grad_norm)

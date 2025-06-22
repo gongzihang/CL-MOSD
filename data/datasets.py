@@ -98,7 +98,7 @@ class Dataset_Desnow(data.Dataset):
 
 class Dataset_Denoise(data.Dataset):
     def __init__(self, phase, dataroot_gt, dataroot_lq=None, geometric_augs=True, 
-                 scale=1, gt_size=None, sigma_type=None, sigma_range=None) -> None:
+                 scale=1, gt_size=None, sigma_type=None, sigma_range=None,sigma_test=None) -> None:
         super().__init__()
         self.scale = scale
         self.gt_size = gt_size
@@ -108,6 +108,7 @@ class Dataset_Denoise(data.Dataset):
         
         self.sigma_type = sigma_type
         self.sigma_range = sigma_range
+        self.sigma_test = sigma_test
                 
         self.gt_path = list(absoluteFilePaths(self.gt_folder))
 
@@ -156,7 +157,7 @@ class Dataset_Denoise(data.Dataset):
             # HACK
             np.random.seed(seed=0)
             img_lq += np.random.normal(0, self.sigma_test/255.0, img_lq.shape)
-            if 'gt_size' is not None:
+            if self.gt_size is not None:
                 # padding
                 img_gt, img_lq = padding(img_gt, img_lq, self.gt_size)
 

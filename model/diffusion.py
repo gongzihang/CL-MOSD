@@ -61,13 +61,14 @@ class eVAE(nn.Module):
         output_img = (output_img+1)/2
         return output_img
     
-    def save_lora(self, path):
+    def save_model(self, path):
+        #  only save lora
         sd = {}
         sd["state_dict_vae"] = {k: v for k, v in self.vae.state_dict().items() if "lora" in k or "skip" in k }
         torch.save(sd, path)
     
-    def load_model(self, path):
-        sd = torch.load(path, map_location="cpu")
+    def load_model(self, load_path):
+        sd = torch.load(load_path, map_location="cpu")
         for n, p in self.vae.named_parameters():
             if "lora" in n or "skip" in n:
                 if n in sd['state_dict_vae'].keys():
@@ -83,7 +84,7 @@ class eVAE(nn.Module):
 
 class Diffusion_EVAE(nn.Module):
     def __init__(self, pretrained_model_path, lora_rank=4, num_experts=5, vae_path=None, train_vae=True, *args, **kwargs) -> None:
-        super().__init__(pretrained_model_path, lora_rank, num_experts, train_vae, *args, **kwargs)
+        super().__init__()
         self.dispatcher = SparseDispatcher()
         self.noise_scheduler = DDPMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
         self.noise_scheduler.set_timesteps(1, device="cuda")
@@ -96,7 +97,7 @@ class Diffusion_EVAE(nn.Module):
         self.unet.to("cuda")
         self.reg_unet.to("cuda")
         self.vae.to("cuda")
-        self.vae.load_model(path=vae_path)
+        self.vae.load_model(load_path=vae_path)
         self.timesteps = torch.tensor([999], device="cuda").long()
     
         self.num_experts = num_experts
