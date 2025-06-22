@@ -18,7 +18,7 @@ from model.add_Moe import initialize_skip_vae
 from model.unet_2d_condition import UNet2DConditionModel
 from model.promptembed import Promept_embed
 from model.router import Router
-from model.diffusion import Diffusion_EVAE, Diffusion_EVAE_All, Diffusion_EVAE_Decoder, Diffusion_EVAE_Encoder
+from model.diffusion import Diffusion_EVAE, Diffusion_EVAE_All, Diffusion_EVAE_Decoder, Diffusion_EVAE_Encoder, Infer_Diffusion_EVAE
 
 class EMA():
     def __init__(self, model, decay):
@@ -297,3 +297,72 @@ class AUXModel(nn.Module):
             new_skip_feature.append(feature.to(self.device))
         output_img = self.vae.decoder(pre_latent.to(self.device),new_skip_feature).clamp(-1, 1)
         return output_img.to(cur_device)
+    
+    
+class Inference_MoeDiffusion(nn.Module):
+    def __init__(self, pretrained_model_path, lora_rank=4, num_experts=5, train_vae=True, task_num=5, router_embed_dim=32, top_k=2, noise_epsilon=0.01, degradation_channels=3,
+                 vae_path=None, train_vae_part=None, use_ema=True, ema_decay=0.999, 
+                 ram_path=None, prompt_embed_revision=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.router_list = nn.ModuleList()
+        for _ in range(task_num):
+            self.router_list.append(Router(expert_nums=num_experts,
+                                           embed_dim=router_embed_dim,
+                                           top_k=top_k,
+                                           noise_epsilon=noise_epsilon,
+                                           degradation_channels=degradation_channels))
+        self.diffusion = Infer_Diffusion_EVAE(pretrained_model_path=pretrained_model_path,
+                                                lora_rank=lora_rank,
+                                                num_experts=num_experts,
+                                                vae_path=vae_path,
+                                                train_vae=train_vae)
+        self.use_ema = use_ema
+        self.ema_decay = ema_decay
+        
+        self.vlm = ram(pretrained=ram_path,
+            pretrained_condition=None,
+            image_size=384,
+            vit='swin_l')
+        self.prompt_embed = Promept_embed(path=pretrained_model_path, revision=prompt_embed_revision)
+        self.ram_transforms = transforms.Compose([
+                                                    transforms.Resize((384, 384)),
+                                                    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                                                ])
+        
+    @torch.no_grad()
+    def get_neg_prompt_embeds(self, B):
+        neg_promt = ["" for _ in range(B)]
+        prompt_embeds = self.prompt_embed(neg_promt)
+        return prompt_embeds
+    
+    @torch.no_grad()
+    def get_prompt_embeds(self, x_tgt:torch.Tensor):
+        cur_device = x_tgt.device
+        x_tgt_ram = self.ram_transforms(x_tgt)
+        caption = inference(x_tgt_ram.to(self.device, dtype=torch.float16), self.vlm)
+        prompt = [f'{each_caption}, A high-resolution, 8K, ultra-realistic image with sharp focus, vibrant colors, and natural lighting' 
+                            for each_caption in caption]
+        prompt_embeds = self.prompt_embed(prompt).to(cur_device)
+        return prompt_embeds
+    
+    @torch.no_grad()
+    def forward(self, lq=None, task_id=None):
+            clean, encoded_control, skip_feature_list = self.diffusion.evae_prepare(lq)
+            prompt_embeds = self.get_prompt_embeds(lq)
+            
+            torch_task_id = torch.tensor([task_id]*encoded_control.shape[0]).to(encoded_control.device)
+            gates, load = self.router_list[task_id](task_id=torch_task_id, degradation_info=skip_feature_list[-1])
+            
+            output_image, latents_pred = self.diffusion.generate_forward(encoded_control, skip_feature_list, prompt_embeds, gates)
+            output_image = output_image*0.5 + 0.5
+            
+            return clean, load, output_image, latents_pred
+        
+    def load_ema_model(self, load_path):
+        sd = torch.load(load_path, weights_only=True, map_location="cpu")
+        for name, param in self.named_parameters():
+            if name in sd["ema"].keys():
+                param.data.copy_(sd["ema"][name])
+    
+        
+        

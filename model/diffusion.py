@@ -340,3 +340,57 @@ class Diffusion_EVAE_All(Diffusion_EVAE):
         for n, p in self.reg_unet.named_parameters():
             if "lora" in n or "conv_in" in n:
                 p.data.copy_(sd["state_dict_reg_unet"][n])
+
+class Infer_Diffusion_EVAE(nn.Module):
+    def __init__(self, pretrained_model_path, lora_rank=4, num_experts=5, vae_path=None, train_vae=True, *args, **kwargs) -> None:
+        super().__init__()
+        self.dispatcher = SparseDispatcher()
+        self.noise_scheduler = DDPMScheduler.from_pretrained(pretrained_model_path, subfolder="scheduler")
+        self.noise_scheduler.set_timesteps(1, device="cuda")
+        self.noise_scheduler.alphas_cumprod = self.noise_scheduler.alphas_cumprod.cuda()
+        
+        self.vae = eVAE(pretrained_model_path=pretrained_model_path, lora_rank=lora_rank)
+        self.unet, self.lora_unet_modules_encoder, self.lora_unet_modules_decoder, self.lora_unet_others = initialize_unet(pretrained_model_path, lora_rank, num_experts, self.dispatcher)
+        
+        self.unet.to("cuda")
+        self.vae.to("cuda")
+        self.vae.load_model(load_path=vae_path)
+        self.timesteps = torch.tensor([999], device="cuda").long()
+    
+        self.num_experts = num_experts
+        
+    def evae_prepare(self, x_src):
+        with torch.no_grad():
+            clean, _, _ = self.vae.prepare(x_src=x_src)
+        encoded_control, skip_feature_list = self.vae.encoder(c_t=x_src*2-1)
+        return clean, encoded_control, skip_feature_list
+    
+    @torch.no_grad()             
+    def generate_forward(self, encoded_control, skip_feature_list, prompt_embeds, gates):
+        """
+        c_t: [-1,1] 输入RGB图片
+        return :
+            origin_output, middle_out, VAE_latent
+        """
+        self.dispatcher.updata(num_experts=self.num_experts, gates=gates)
+        
+        model_pred, midlle_output = self.unet(encoded_control, self.timesteps, encoder_hidden_states=prompt_embeds.to(torch.float32),)
+        model_pred = model_pred.sample
+        # midlle_output = midlle_output[-1].float()
+        
+        x_denoised = self.noise_scheduler.step(model_pred, self.timesteps, encoded_control, return_dict=True).prev_sample
+        output_image = self.vae.decoder(high_latent=x_denoised, pre_info=skip_feature_list)
+        # return output_image, x_denoised, encoded_control, model_pred
+        return output_image, x_denoised
+    
+
+    def load_model(self, sd):
+        for n, p in self.unet.named_parameters():
+            if "lora" in n or "conv_in" in n:
+                p.data.copy_(sd["state_dict_unet"][n])
+        
+        if 'state_dict_vae' in sd.keys():
+            for n, p in self.vae.named_parameters():
+                if "lora" in n:
+                    if n in sd['state_dict_vae'].keys():
+                        p.data.copy_(sd["state_dict_vae"][n])
