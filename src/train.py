@@ -252,8 +252,9 @@ def main(args):
             ssim_metric = pyiqa.create_metric('ssim', device=accelerator.device)
         load_sum = np.array([0,0,0,0,0])
     
-    with torch.no_grad():
-        neg_prompt_embeds = AUX_model.get_neg_prompt_embeds(cfg.train_batch_size)
+    if args.train_type == "Diffusion":
+        with torch.no_grad():
+            neg_prompt_embeds = AUX_model.get_neg_prompt_embeds(cfg.train_batch_size)
 
 # ========================  Start Training ============================
     for _ in range(args.max_train_steps):
@@ -273,7 +274,7 @@ def main(args):
                 
                 accelerator.backward(generator_loss)
                 if accelerator.sync_gradients:
-                    generator_grad_norm = accelerator.clip_grad_norm_(layers_to_opt, cfg.max_grad_norm)
+                    generator_grad_norm = accelerator.clip_grad_norm_(layers_to_opt_vae, cfg.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad() 

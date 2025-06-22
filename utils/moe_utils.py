@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from peft.tuners.lora.layer import LoraLayer, Linear, Conv2d
-from model.utils.Adapter import  Linear_Lora, Conv2d_Lora
+from utils.Adapter import  Linear_Lora, Conv2d_Lora
 from typing import Any
 
 

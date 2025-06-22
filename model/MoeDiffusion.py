@@ -18,7 +18,7 @@ from model.add_Moe import initialize_skip_vae
 from model.unet_2d_condition import UNet2DConditionModel
 from model.promptembed import Promept_embed
 from model.router import Router
-from diffusion import Diffusion_EVAE, Diffusion_EVAE_All, Diffusion_EVAE_Decoder, Diffusion_EVAE_Encoder
+from model.diffusion import Diffusion_EVAE, Diffusion_EVAE_All, Diffusion_EVAE_Decoder, Diffusion_EVAE_Encoder
 
 class EMA():
     def __init__(self, model, decay):

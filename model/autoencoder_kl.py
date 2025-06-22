@@ -30,7 +30,7 @@ from diffusers.models.attention_processor import (
 from diffusers.models.modeling_outputs import AutoencoderKLOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.autoencoders.vae import Decoder, DecoderOutput, DiagonalGaussianDistribution, Encoder
-from model.my_vae import Skip_Decoder,Skip_Encoder
+from model.skip_vae import Skip_Decoder,Skip_Encoder
 from peft import LoraConfig
 
 class AutoencoderKL(ModelMixin, ConfigMixin, FromOriginalVAEMixin):
