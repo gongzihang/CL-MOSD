@@ -255,13 +255,14 @@ def main(args):
         logger_name = "val"
         logger_info(logger_name, os.path.join(os.path.join(args.output_dir, "eval"), logger_name+'.log'))# type: ignore
         logger = logging.getLogger(logger_name)
-        if args.train_type == "Evae":
-            musiq_metric = pyiqa.create_metric('musiq', device=accelerator.device)
-            clipiqa_metric = pyiqa.create_metric('clipiqa', device=accelerator.device)
-            psnr_metric = pyiqa.create_metric('psnr', device=accelerator.device)
-            dists_metric = pyiqa.create_metric('dists', device=accelerator.device)
-            ssim_metric = pyiqa.create_metric('ssim', device=accelerator.device)
         load_sum = np.array([0,0,0,0,0])
+    
+    if args.train_type == "Evae":
+        musiq_metric = pyiqa.create_metric('musiq', device=accelerator.device)
+        clipiqa_metric = pyiqa.create_metric('clipiqa', device=accelerator.device)
+        psnr_metric = pyiqa.create_metric('psnr', device=accelerator.device)
+        dists_metric = pyiqa.create_metric('dists', device=accelerator.device)
+        ssim_metric = pyiqa.create_metric('ssim', device=accelerator.device)
     
     if args.train_type == "Diffusion":
         with torch.no_grad():
@@ -384,10 +385,11 @@ def main(args):
                             np.savetxt(f, [load_sum], fmt='%.4f', delimiter=', ')
                     print(f"Save to {load_dir} successfully !!")
                     
-                ### Eval
-                if (args.train_type == "Evae") and (global_step % cfg.log.val_every == 0):
-                    with torch.no_grad():
-                        model.eval()
+            ### Eval
+            if (args.train_type == "Evae") and (global_step % cfg.log.val_every == 0):
+                with torch.no_grad():
+                    model.eval()
+                    if accelerator.is_main_process:
                         avg_dict = {'psnr':{ 'd_psnr':0,},
                                     'ssim':{'d_ssim':0, }, 
                                     'dists':{'d_dists':0, }, 
@@ -396,50 +398,53 @@ def main(args):
                                     'musiq':{'d_musiq':0, 'gt_musiq':0},
                                     'clipiqa':{ 'd_clipiqa':0, 'gt_clipiqa':0}}
                         logger.info(f'========= START TESTING : length of test_dataset is : {len(dl_test)}')
-                        for count, batch in enumerate(dl_test):
-                            x_tgt = batch['gt'].to(accelerator.device, dtype=weight_dtype)
-                            x_src = batch['lq'].to(accelerator.device, dtype=weight_dtype)
-                            output_image = model(x_src,x_tgt)
-                            
-                            image_name = os.path.splitext(os.path.basename(batch['gt_path'][0]))[0]
-                            
-                            d_psnr = psnr_metric(output_image, x_tgt).item()
-                            logger.info('[PSNR] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name, d_psnr))
+                    for count, batch in enumerate(dl_test):
+                        x_tgt = batch['gt'].to(accelerator.device, dtype=weight_dtype)
+                        x_src = batch['lq'].to(accelerator.device, dtype=weight_dtype)
+                        output_image = model(x_src,x_tgt)
+                        
+                        image_name = os.path.splitext(os.path.basename(batch['gt_path'][0]))[0]
+                        
+                        d_psnr = psnr_metric(output_image, x_tgt)
+                        d_psnr = accelerator.gather_for_metrics(d_psnr).mean().item()
+                        
+                        d_ssim = ssim_metric(output_image, x_tgt)
+                        d_ssim = accelerator.gather_for_metrics(d_ssim).mean().item()
+                        
+                        d_dists = dists_metric(output_image, x_tgt)
+                        d_dists = accelerator.gather_for_metrics(d_dists).mean().item()
+                        
+                        d_musiq = musiq_metric(output_image)
+                        gt_musiq = musiq_metric(x_tgt)
+                        d_musiq = accelerator.gather_for_metrics(d_musiq).mean().item()
+                        gt_musiq = accelerator.gather_for_metrics(gt_musiq).mean().item()
+                        
+                        
+                        d_clipiqa = clipiqa_metric(output_image)
+                        gt_clipiqa = clipiqa_metric(x_tgt)
+                        d_clipiqa = accelerator.gather_for_metrics(d_clipiqa).mean().item()
+                        gt_clipiqa = accelerator.gather_for_metrics(gt_clipiqa).mean().item()
+                        
+                        if accelerator.is_main_process:
                             avg_dict['psnr']['d_psnr'] += d_psnr
-                            
-                            d_ssim = ssim_metric(output_image, x_tgt).item()
-                            logger.info('[SSIM] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name,  d_ssim))
                             avg_dict['ssim']['d_ssim'] += d_ssim
-                            
-                            d_dists = dists_metric(output_image, x_tgt).item()
-                            logger.info('[DISTS] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name, d_dists))
                             avg_dict['dists']['d_dists'] += d_dists
-                            
-                            # d_lpips = net_lpips(output_image.float(), x_tgt.float()).mean().item()
-                            # logger.info('[LPIPS] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name,  d_lpips))
-                            # avg_dict['lpips']['d_lpips'] += d_lpips
-                            
-                            d_dists = feat_loss_fn(output_image.float(), x_tgt.float()).mean().item()
-                            logger.info('[dists] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name,  d_dists))
-                            avg_dict['dists']['d_dists'] += d_dists
-                            
-                            d_musiq = musiq_metric(output_image).item()
-                            gt_musiq = musiq_metric(x_tgt).item()
-                            logger.info('[MUSIQ] || {:->4d}--> img:{:>10s}  | D:{:<4.2f} | GT:{:<4.2f}'.format(count+1, image_name, d_musiq, gt_musiq))
                             avg_dict['musiq']['d_musiq'] += d_musiq
                             avg_dict['musiq']['gt_musiq'] += gt_musiq
-                            
-                            d_clipiqa = clipiqa_metric(output_image).item()
-                            gt_clipiqa = clipiqa_metric(x_tgt).item()
-                            logger.info('[CLIPIQA] || {:->4d}--> img:{:>10s}  | D:{:<4.2f} | GT:{:<4.2f}'.format(count+1, image_name, d_clipiqa,gt_clipiqa))
                             avg_dict['clipiqa']['d_clipiqa'] += d_clipiqa
                             avg_dict['clipiqa']['gt_clipiqa'] += gt_clipiqa
-
+                            logger.info('[PSNR] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name, d_psnr))
+                            logger.info('[SSIM] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name,  d_ssim))
+                            logger.info('[DISTS] || {:->4d}--> img:{:>10s}  | D:{:<4.2f}dB '.format(count+1, image_name, d_dists))
+                            logger.info('[MUSIQ] || {:->4d}--> img:{:>10s}  | D:{:<4.2f} | GT:{:<4.2f}'.format(count+1, image_name, d_musiq, gt_musiq))
+                            logger.info('[CLIPIQA] || {:->4d}--> img:{:>10s}  | D:{:<4.2f} | GT:{:<4.2f}'.format(count+1, image_name, d_clipiqa,gt_clipiqa))
                             combined = torch.cat(( x_tgt[0], output_image[0], x_src[0]), dim=2)  # (B, C, 2*W, H)
                             # 将拼接后的 combined 图像转换为网格，并记录到 TensorBoard
                             combined_grid = vutils.make_grid(combined, nrow=3)  # 将每5张图片排列为一行
                             writer.add_image(f"test_img", combined_grid, global_step=count) 
                             print('+'*50)
+                    
+                    if accelerator.is_main_process:
                         for k, v in avg_dict.items():
                             for n,p in v.items():
                                 avg_dict[k][n] = p / (count + 1)
