@@ -2,3 +2,4 @@ exp/
 *.log
 *.out
 debug.*
+__pycache__/
