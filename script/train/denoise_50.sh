@@ -1,0 +1,17 @@
+set -v
+set -x
+set -e
+
+# 禁用 NCCL 设置
+NCCL_P2P_DISABLE=1
+NCCL_IB_DISABLE=1
+
+GPU=5,
+
+# Train EVAE
+CUDA_VISIBLE_DEVICES=${GPU} accelerate launch --num_process 1 --main_process_port 7777 src/train.py \
+    --config config/denoise_50.yaml \
+    --task_id 2 \
+    --output_dir exp/DENOISE50/EVAE/DEMO1 \
+    --train_type Evae \
+    --max_train_steps 50000

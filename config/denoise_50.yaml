@@ -1,0 +1,148 @@
+model:
+  EVAE:
+    target: model.diffusion.eVAE
+    params:
+      pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
+      lora_rank: 4
+
+  MoeDiffusion:
+    target: model.MoeDiffusion.MoeDiffusion
+    params:
+      pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
+      lora_rank: 4
+      num_experts: 5
+      train_vae: False 
+      task_num: 5
+
+      router_embed_dim: 32
+      top_k: 2
+      noise_epsilon: 1e-2
+      degradation_channels: 512
+      vae_path: 
+      # train_vae_part: 
+      # train_vae_part: Decoder
+      # train_vae_part: Encoder
+      train_vae_part: All
+
+      use_ema: True
+      ema_decay: 0.999
+
+  AUXModel:
+    target: model.MoeDiffusion.AUXModel
+    params:
+      # ram
+      ram_path:  /home/gongzihang/workspace/Final_mix/ram/ckpt/ram_swin_large_14m.pth
+      # DAPE
+      prompt_embed_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
+      prompt_embed_revision: None
+      # CGNet
+      task_num: 5
+      img_channel: 3 
+      width: 60
+      enc_blks: [2, 2, 4, 6]
+      middle_blk_num: 10
+      dec_blks: [2, 2, 2, 2]
+      GCE_CONVS_nums: [3,3,2,2]
+      # CGNet_load_path: None
+
+      # EVAE
+      lora_rank: 4
+      vae_pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
+      # vae_path: exp/EVAE/Denoie50/checkpoints-50000/model.pkl
+
+      # fix diffusion
+      pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
+
+
+datasets:
+  train:
+    target: data.datasets.Dataset_Denoise
+    params:
+      phase: train
+      dataroot_gt: /home/gongzihang/data/LSDIR/HR/train/
+      # dataroot_lq: None 
+      geometric_augs: true
+      scale: 1
+
+      gt_size: 256
+      sigma_type: constant
+      sigma_range: 50
+
+  test:
+    target: data.datasets.Dataset_Denoise
+    params: 
+      phase: train
+      # dataroot_gt: /home/gongzihang/data/LSDIR/HR/train/
+      dataroot_gt: /home/gongzihang/workspace/Final_mix/data/testset/CBSD68
+      # dataroot_lq: None 
+      geometric_augs: true
+      scale: 1
+
+      # gt_size: 256
+      sigma_type: constant
+      sigma_range: 50
+      
+
+log:
+  # experiment directory path
+  image_every: 100
+  checkpointing_steps: 10000
+  val_every: 10000
+
+
+# output_dir: exp/OSEDiff/DEMO15
+logging_dir: log
+mixed_precision: 'no'
+gradient_accumulation_steps: 1
+report_to: "tensorboard"
+seed: 123
+# max_train_steps: 70000
+max_grad_norm: 1.0
+
+enable_xformers_memory_efficient_attention: True
+gradient_checkpointing: False
+allow_tf32: False
+
+
+# optimizer
+  # train diffusion
+unet_lr: 2e-5
+router_lr: 1e-5
+vae_lr: 1e-5
+  # train Evae
+evae_lr:  5e-5
+
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_weight_decay: 1e-2 
+adam_epsilon: 1e-08
+
+# scheduler
+# lr_scheduler: constant_with_warmup
+# lr_warmup_steps: 2000
+# lr_num_cycles: 1
+# lr_power: 1.0
+
+lr_scheduler: cosine
+lr_warmup_steps: 2500
+lr_num_cycles: 0.5
+lr_power: 1.0
+
+# dataloader
+test_batch_size: 1
+train_batch_size: 2
+dataloader_num_workers: 8
+
+#log
+tracker_project_name: log
+
+# loss
+loss_type: DISTS
+
+loss_l2: 1.0
+loss_kl: 1.0
+loss_feat: 2.0
+cfg_vsd: 7.5
+
+# load (auto load last checkpoint)
+model_load_path: 
