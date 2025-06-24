@@ -30,11 +30,21 @@ class Skip_UpDecoderBlock2D(UpDecoderBlock2D):
         self.out_channels = out_channels
         
     def add_skip_connect(self):
-        self.skip_conv = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, padding=1)
-        # self.concat_conv = nn.Conv2d(out_channels*2, out_channels, kernel_size=3, padding=1)
+        # self.skip_conv = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=3, padding=1,bias=False)
+        # # self.concat_conv = nn.Conv2d(out_channels*2, out_channels, kernel_size=3, padding=1)
+        # self.skip_concat_conv = nn.Sequential(
+        #                                 nn.Conv2d(self.out_channels*2, self.out_channels, kernel_size=3, padding=1, bias=False),
+        #                                 nn.GroupNorm(32, self.out_channels),
+        #                                 nn.SiLU()
+        #                             )
+        
+        self.skip_conv = nn.Conv2d(self.out_channels, self.out_channels, kernel_size=1,bias=False)
         self.skip_concat_conv = nn.Sequential(
-                                        nn.Conv2d(self.out_channels*2, self.out_channels, kernel_size=3, padding=1),
-                                        nn.GroupNorm(32, self.out_channels),
+                                        nn.Conv2d(self.out_channels*2, self.out_channels//4, kernel_size=1, bias=False),
+                                        nn.GroupNorm(8, self.out_channels//4),
+                                        nn.SiLU(),
+                                        nn.Conv2d(self.out_channels//4, self.out_channels, kernel_size=1, bias=False),
+                                        nn.GroupNorm(16, self.out_channels),
                                         nn.SiLU()
                                     )
     def forward(

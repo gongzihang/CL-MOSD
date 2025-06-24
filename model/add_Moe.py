@@ -43,7 +43,7 @@ def initialize_skip_vae(pretrained_model, lora_rank):
                 l_target_modules_encoder.append(n.replace(".weight",""))
             elif ('quant_conv' in n) and ('post_quant_conv' not in n):
                 l_target_modules_encoder.append(n.replace(".weight",""))
-    
+    print(len(l_target_modules_encoder))
     lora_conf_encoder = LoraConfig(r=lora_rank, init_lora_weights="gaussian",target_modules=l_target_modules_encoder)
     vae.add_adapter(lora_conf_encoder, adapter_name="default_encoder")
     vae.decoder.add_skip_connect()

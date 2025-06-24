@@ -231,6 +231,10 @@ def main(args):
         model,  optimizer, lr_scheduler, dl_train, dl_test = accelerator.prepare(
             model,  optimizer, lr_scheduler, dl_train,dl_test
         )
+        try:
+            accelerator.unwrap_model(model).ema.to(accelerator.device)
+        except AttributeError as e:
+            pass
     else:
         model,  optimizer, lr_scheduler, optimizer_reg, lr_scheduler_reg, dl_train = accelerator.prepare(
             model,  optimizer, lr_scheduler, optimizer_reg, lr_scheduler_reg, dl_train
@@ -290,6 +294,11 @@ def main(args):
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad() 
+                try:
+                    accelerator.unwrap_model(model).ema.update()
+                except AttributeError as e:
+                    print("[ERROR] : No EMA")
+                    pass
             else:
                 with torch.no_grad():
                     prompt_embeds = AUX_model.get_prompt_embeds(x_tgt)

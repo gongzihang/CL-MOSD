@@ -3,7 +3,11 @@ model:
     target: model.diffusion.eVAE
     params:
       pretrained_model_path: /home/gongzihang/workspace/Final_mix/pretrained/sd
-      lora_rank: 4
+      lora_rank: 8
+
+      use_ema: True
+      ema_decay: 0.999
+
 
   MoeDiffusion:
     target: model.MoeDiffusion.MoeDiffusion
@@ -113,7 +117,7 @@ lr:
   router: 1e-5
   vae: 1e-5
     # train Evae
-  evae:  5e-5
+  evae:  1e-4
 
 adam_beta1: 0.9
 adam_beta2: 0.999
@@ -143,8 +147,8 @@ tracker_project_name: log
 # loss
 loss_feat_type: DISTS
 loss_evae:
-  l2: 0.7
-  feat: 0.3
+  l2: 1
+  feat: 0
 loss:
   l2: 1.0
   kl: 1.0

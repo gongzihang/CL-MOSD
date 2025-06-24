@@ -3,3 +3,4 @@ exp/
 *.out
 debug.*
 __pycache__/
+img_folder/

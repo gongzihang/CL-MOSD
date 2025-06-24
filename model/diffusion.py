@@ -7,17 +7,63 @@ from diffusers import DDPMScheduler
 
 from model.add_Moe import initialize_skip_vae, initialize_unet_only, initialize_unet
 from utils.moe_utils import SparseDispatcher, Moe_layer, replace_layers_byname
+from model.autoencoder_kl import Skip_AutoencoderKL
+
+class EMA():
+    def __init__(self, model, decay):
+        self.model = model
+        self.decay = decay
+        self.shadow = {}
+        self.backup = {}
+
+    def register(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.clone()
+
+    def update(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                new_average = (1.0 - self.decay) * param.data + self.decay * self.shadow[name]
+                self.shadow[name] = new_average.clone()
+
+    def apply_shadow(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.shadow
+                self.backup[name] = param.data
+                param.data = self.shadow[name]
+
+    def restore(self):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                assert name in self.backup
+                param.data = self.backup[name]
+        self.backup = {}
+        
+    def to(self, device):  
+        for k in self.shadow:
+            self.shadow[k] = self.shadow[k].to(device)
+
 
 class eVAE(nn.Module):
-    def __init__(self, pretrained_model_path, lora_rank=4,*args, **kwargs) -> None:
+    def __init__(self, pretrained_model_path, lora_rank=4,use_ema=True, ema_decay=0.99, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.vae, self.lora_vae_modules_encoder = initialize_skip_vae(pretrained_model=pretrained_model_path, lora_rank=lora_rank)
+        
+        self.use_ema = use_ema
+        self.ema_decay = ema_decay
         
     def set_train(self):
         for n, _p in self.vae.named_parameters():
             if "lora" in n or "skip" in n:
                 _p.requires_grad = True
-    
+                
+        if self.use_ema:
+            self.ema = EMA(self, decay=self.ema_decay)
+            self.ema.register()
+            
     def get_pre_info(self, c_t):
         """
             c_t = [-1,1]
@@ -65,6 +111,8 @@ class eVAE(nn.Module):
         #  only save lora
         sd = {}
         sd["state_dict_vae"] = {k: v for k, v in self.vae.state_dict().items() if "lora" in k or "skip" in k }
+        if self.use_ema:
+            sd["ema"] = self.ema.shadow 
         torch.save(sd, path)
     
     def load_model(self, load_path):
@@ -73,7 +121,9 @@ class eVAE(nn.Module):
             if "lora" in n or "skip" in n:
                 if n in sd['state_dict_vae'].keys():
                     p.data.copy_(sd["state_dict_vae"][n])
-                    
+        
+        if self.use_ema and "ema" in sd:
+            self.ema.shadow = sd["ema"]
                     
     def load_model_path(self, path):
         sd = torch.load(path, map_location="cpu")
@@ -81,6 +131,12 @@ class eVAE(nn.Module):
             if "lora" in n or "skip" in n:
                 if n in sd['state_dict_vae'].keys():
                     p.data.copy_(sd["state_dict_vae"][n])
+                    
+    def load_ema_model(self, load_path):
+        sd = torch.load(load_path, weights_only=True, map_location="cpu")
+        for name, param in self.named_parameters():
+            if name in sd["ema"].keys():
+                param.data.copy_(sd["ema"][name])
 
 class Diffusion_EVAE(nn.Module):
     def __init__(self, pretrained_model_path, lora_rank=4, num_experts=5, vae_path=None, train_vae=True, *args, **kwargs) -> None:
